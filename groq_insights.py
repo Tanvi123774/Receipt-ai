@@ -10,6 +10,7 @@ client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 df = pd.read_csv("data/receipts.csv")
 
 total_spending = df["Price"].sum()
+
 print("Total spending:", round(total_spending, 2))
 category_spending = df.groupby("Category")["Price"].sum()
 

@@ -1,0 +1,27 @@
+[
+    {
+        "timestamp": "2026-08-31 15:23:53",
+        "user_query": "which item was most expensive",
+        "sql_query": "SELECT Item, Price\nFROM table_6ea3ee518f0172fa5acec3c4fdcf1026\nORDER BY Price DESC\nLIMIT 1"
+    },
+    {
+        "timestamp": "2026-08-31 15:31:38",
+        "user_query": "which item is the least expensive",
+        "sql_query": "SELECT Item, Price\nFROM table_6ea3ee518f0172fa5acec3c4fdcf1026\nORDER BY Price ASC\nLIMIT 1;"
+    },
+    {
+        "timestamp": "2026-08-31 15:38:38",
+        "user_query": "which is the item that i buy the most\n\nIMPORTANT:\nWhen generating the SQL query, if the answer comes from\nspecific receipt rows, include Store and Date in the\nSELECT statement so that the source receipt can be\nidentified.\n\nDo not remove Store or Date when selecting a specific\npurchase or item.",
+        "sql_query": "SELECT\n    Item,\n    SUM(Quantity) AS total_quantity\nFROM\n    table_6ea3ee518f0172fa5acec3c4fdcf1026\nGROUP BY\n    Item\nORDER BY\n    total_quantity DESC\nLIMIT 1;"
+    },
+    {
+        "timestamp": "2026-08-31 15:43:24",
+        "user_query": "which item is the least expensive\n\nIMPORTANT:\nWhen generating the SQL query, if the answer comes from\nspecific receipt rows, include Store and Date in the\nSELECT statement so that the source receipt can be\nidentified.\n\nDo not remove Store or Date when selecting a specific\npurchase or item.",
+        "sql_query": "SELECT Date, Store, Item, Price\nFROM table_6ea3ee518f0172fa5acec3c4fdcf1026\nORDER BY Price ASC\nLIMIT 1;"
+    },
+    {
+        "timestamp": "2026-08-31 15:46:51",
+        "user_query": "which item is the least expensive\n\nIMPORTANT:\nWhen generating the SQL query, if the answer comes from\nspecific receipt rows, include Store and Date in the\nSELECT statement so that the source receipt can be\nidentified.\n\nDo not remove Store or Date when selecting a specific\npurchase or item.",
+        "sql_query": "SELECT Date, Store, Item, Price\nFROM table_6ea3ee518f0172fa5acec3c4fdcf1026\nORDER BY Price ASC\nLIMIT 1;"
+    }
+]

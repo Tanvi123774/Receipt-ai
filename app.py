@@ -23,7 +23,7 @@ st.set_page_config(
 
 
 # =========================================================
-# LOAD ENVIRONMENT VARIABLES
+# LOAD GROQ API KEY
 # =========================================================
 
 load_dotenv()
@@ -31,7 +31,13 @@ load_dotenv()
 groq_api_key = os.getenv("GROQ_API_KEY")
 
 if not groq_api_key:
-    st.error("GROQ_API_KEY not found in your .env file.")
+    try:
+        groq_api_key = st.secrets["GROQ_API_KEY"]
+    except Exception:
+        groq_api_key = None
+
+if not groq_api_key:
+    st.error("GROQ_API_KEY not found.")
     st.stop()
 
 
@@ -43,18 +49,6 @@ st.markdown(
     """
     <style>
 
-    /* Main page width */
-    .block-container {
-        max-width: 1150px;
-        padding-top: 2rem;
-        padding-bottom: 3rem;
-    }
-
-
-    /* =====================================================
-       METRIC CARDS
-       ===================================================== */
-
     [data-testid="stMetric"] {
         background-color: #ffffff !important;
         border: 1px solid #e5e7eb !important;
@@ -63,69 +57,19 @@ st.markdown(
         min-height: 130px;
     }
 
-
-    /* Metric label */
-
-    [data-testid="stMetricLabel"] {
-        color: #444444 !important;
-    }
-
     [data-testid="stMetricLabel"] p {
         color: #444444 !important;
         font-weight: 500 !important;
         font-size: 15px !important;
     }
 
-
-    /* Metric value */
-
-    [data-testid="stMetricValue"] {
-        color: #111111 !important;
-    }
-
-    [data-testid="stMetricValue"] > div {
-        color: #111111 !important;
-    }
-
     [data-testid="stMetricValue"] * {
         color: #111111 !important;
     }
 
-
-    /* Help icon */
-
     [data-testid="stMetric"] svg {
         color: #555555 !important;
         fill: #555555 !important;
-    }
-
-
-    /* =====================================================
-       FILE UPLOADER
-       ===================================================== */
-
-    [data-testid="stFileUploader"] {
-        border-radius: 12px;
-    }
-
-
-    /* =====================================================
-       BUTTONS
-       ===================================================== */
-
-    .stButton > button {
-        border-radius: 8px;
-        font-weight: 600;
-    }
-
-
-    /* =====================================================
-       DATAFRAME
-       ===================================================== */
-
-    [data-testid="stDataFrame"] {
-        border-radius: 10px;
-        overflow: hidden;
     }
 
     </style>
@@ -135,19 +79,26 @@ st.markdown(
 
 
 # =========================================================
-# SESSION STATE
+# TITLE
 # =========================================================
 
-# Stores already processed receipts.
-# This prevents Streamlit from calling the VLM again
-# every time the page reruns.
+st.title("🧾 AI Grocery Receipt & Spending Analyst")
+
+st.write(
+    "Upload your grocery receipts and analyze your spending using AI."
+)
+
+
+# =========================================================
+# SESSION CACHE
+# =========================================================
 
 if "receipt_cache" not in st.session_state:
     st.session_state.receipt_cache = {}
 
 
 # =========================================================
-# GROQ LLM FOR PANDASAI
+# CREATE GROQ LLM FOR PANDASAI
 # =========================================================
 
 groq_llm = GroqLLM(
@@ -158,653 +109,665 @@ groq_llm = GroqLLM(
 
 
 # =========================================================
-# HEADER
+# AUTOMATIC ITEM CATEGORIZATION
 # =========================================================
 
-st.title("AI Grocery Receipt & Spending Analyst")
+def categorize_item(item_name):
 
-st.caption(
-    "Upload multiple grocery receipts, extract the details automatically, "
-    "analyze your monthly spending, and ask questions about your purchases."
-)
+    item = str(item_name).lower()
+
+    categories = {
+
+        "Dairy": [
+            "milk",
+            "cheese",
+            "butter",
+            "yogurt",
+            "curd",
+            "cream",
+            "paneer"
+        ],
+
+        "Fruits": [
+            "apple",
+            "banana",
+            "orange",
+            "mango",
+            "grape",
+            "watermelon",
+            "papaya",
+            "pineapple",
+            "strawberry"
+        ],
+
+        "Vegetables": [
+            "tomato",
+            "potato",
+            "onion",
+            "spinach",
+            "cucumber",
+            "cabbage",
+            "carrot",
+            "broccoli",
+            "pepper"
+        ],
+
+        "Snacks": [
+            "chips",
+            "chocolate",
+            "biscuit",
+            "cookie",
+            "cereal",
+            "cracker",
+            "popcorn",
+            "snack"
+        ],
+
+        "Beverages": [
+            "juice",
+            "coffee",
+            "tea",
+            "soda",
+            "cola",
+            "drink",
+            "water"
+        ],
+
+        "Protein": [
+            "egg",
+            "chicken",
+            "fish",
+            "meat",
+            "beef",
+            "mutton"
+        ],
+
+        "Grains": [
+            "rice",
+            "wheat",
+            "bread",
+            "flour",
+            "oats"
+        ],
+
+        "Pulses": [
+            "dal",
+            "lentil",
+            "beans",
+            "chickpea"
+        ],
+
+        "Nuts": [
+            "almond",
+            "cashew",
+            "peanut",
+            "walnut",
+            "pistachio"
+        ],
+
+        "Household": [
+            "soap",
+            "detergent",
+            "cleaner",
+            "tissue",
+            "toilet",
+            "shampoo"
+        ]
+    }
+
+    for category, keywords in categories.items():
+
+        for keyword in keywords:
+
+            if keyword in item:
+                return category
+
+    return "Other"
 
 
 # =========================================================
-# UPLOAD RECEIPTS
+# FILE UPLOAD
 # =========================================================
-
-st.subheader("Upload receipts")
 
 uploaded_files = st.file_uploader(
-    "Upload one or more receipt images",
-    type=[
-        "jpg",
-        "jpeg",
-        "png"
-    ],
+    "Upload grocery receipts",
+    type=["png", "jpg", "jpeg"],
     accept_multiple_files=True
 )
-
-
-# =========================================================
-# STOP IF NOTHING UPLOADED
-# =========================================================
-
-if not uploaded_files:
-
-    st.info(
-        "Upload your monthly receipt images to begin."
-    )
-
-    st.stop()
 
 
 # =========================================================
 # PROCESS RECEIPTS
 # =========================================================
 
-all_items = []
+if uploaded_files:
 
-processed_receipts = []
-
-
-with st.spinner("Reading your receipts..."):
+    receipts = []
 
     for uploaded_file in uploaded_files:
 
-        # ---------------------------------------------
-        # READ IMAGE
-        # ---------------------------------------------
-
         file_bytes = uploaded_file.getvalue()
-
-
-        # ---------------------------------------------
-        # CREATE UNIQUE HASH
-        # ---------------------------------------------
 
         file_hash = hashlib.md5(
             file_bytes
         ).hexdigest()
 
 
-        # ---------------------------------------------
-        # CHECK CACHE
-        # ---------------------------------------------
+        # -------------------------------------------------
+        # USE CACHE IF RECEIPT WAS ALREADY PROCESSED
+        # -------------------------------------------------
 
         if file_hash in st.session_state.receipt_cache:
 
             receipt_data = (
                 st.session_state
-                .receipt_cache[
-                    file_hash
-                ]
+                .receipt_cache[file_hash]
             )
-
-
-        # ---------------------------------------------
-        # NEW RECEIPT → SEND TO VLM
-        # ---------------------------------------------
 
         else:
 
-            file_extension = os.path.splitext(
+            # ---------------------------------------------
+            # SAVE TEMPORARY IMAGE
+            # ---------------------------------------------
+
+            suffix = os.path.splitext(
                 uploaded_file.name
             )[1]
 
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=suffix
+            ) as temp_file:
 
-            temp_path = None
+                temp_file.write(
+                    file_bytes
+                )
 
-
-            try:
-
-                # Save uploaded image temporarily
-
-                with tempfile.NamedTemporaryFile(
-                    delete=False,
-                    suffix=file_extension
-                ) as temp_file:
-
-                    temp_file.write(
-                        file_bytes
-                    )
-
-                    temp_path = temp_file.name
-
-
-                # -------------------------------------
-                # VLM READS RECEIPT
-                # -------------------------------------
-
-                receipt_data = extract_receipt_data(
-                    temp_path
+                temp_path = (
+                    temp_file.name
                 )
 
 
-                # -------------------------------------
-                # SAVE RESULT IN CACHE
-                # -------------------------------------
+            # ---------------------------------------------
+            # SEND RECEIPT TO VLM
+            # ---------------------------------------------
+
+            try:
+
+                with st.spinner(
+                    f"Reading {uploaded_file.name}..."
+                ):
+
+                    receipt_data = (
+                        extract_receipt_data(
+                            temp_path
+                        )
+                    )
 
                 st.session_state.receipt_cache[
                     file_hash
                 ] = receipt_data
 
-
             except Exception as e:
 
                 st.error(
-                    f"Could not process {uploaded_file.name}"
+                    f"Could not process "
+                    f"{uploaded_file.name}: {e}"
                 )
 
-                st.code(
-                    str(e)
-                )
-
-                continue
-
+                receipt_data = None
 
             finally:
 
-                # Delete temporary image
-
-                if (
-                    temp_path
-                    and os.path.exists(temp_path)
-                ):
-
-                    try:
-
-                        os.remove(
-                            temp_path
-                        )
-
-                    except OSError:
-
-                        pass
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
 
 
-        # ---------------------------------------------
-        # SAVE RECEIPT INFORMATION
-        # ---------------------------------------------
+        if receipt_data:
+            receipts.append(
+                receipt_data
+            )
 
-        processed_receipts.append(
-            {
-                "filename":
-                    uploaded_file.name,
 
-                "data":
-                    receipt_data
-            }
+    # =====================================================
+    # CREATE DATAFRAME
+    # =====================================================
+
+    rows = []
+
+    for receipt in receipts:
+
+        store = receipt.get(
+            "store",
+            "Unknown"
+        )
+
+        date = receipt.get(
+            "date",
+            "Unknown"
+        )
+
+        currency = receipt.get(
+            "currency",
+            ""
         )
 
 
-        # ---------------------------------------------
-        # EXTRACT ITEMS
-        # ---------------------------------------------
-
-        items = receipt_data.get(
+        for item in receipt.get(
             "items",
             []
-        )
+        ):
 
+            item_name = item.get(
+                "name",
+                "Unknown"
+            )
 
-        for item in items:
-
-            if not isinstance(
-                item,
-                dict
-            ):
-
-                continue
-
-
-            all_items.append(
+            rows.append(
                 {
-                    "Date":
-                        receipt_data.get(
-                            "date"
-                        ),
+                    "Date": date,
 
-                    "Store":
-                        receipt_data.get(
-                            "store"
-                        ),
+                    "Store": store,
 
-                    "Item":
-                        item.get(
-                            "item"
-                        ),
+                    "Currency": currency,
 
-                    "Quantity":
-                        item.get(
-                            "quantity"
-                        ),
+                    "Item": item_name,
 
-                    "Price":
-                        item.get(
-                            "price"
-                        )
+                    "Category": categorize_item(
+                        item_name
+                    ),
+
+                    "Quantity": item.get(
+                        "quantity",
+                        1
+                    ),
+
+                    "Price": item.get(
+                        "price",
+                        0
+                    )
                 }
             )
 
 
-# =========================================================
-# CHECK THAT WE ACTUALLY GOT ITEMS
-# =========================================================
+    df = pd.DataFrame(rows)
 
-if not all_items:
 
-    st.warning(
-        "The uploaded receipts were processed, "
-        "but no grocery items could be extracted."
-    )
+    # =====================================================
+    # CHECK DATA
+    # =====================================================
 
-    st.stop()
-
-
-# =========================================================
-# CREATE PANDAS DATAFRAME
-# =========================================================
-
-df = pd.DataFrame(
-    all_items
-)
-
-
-# =========================================================
-# CLEAN DATA
-# =========================================================
-
-df["Price"] = pd.to_numeric(
-    df["Price"],
-    errors="coerce"
-)
-
-
-df["Quantity"] = pd.to_numeric(
-    df["Quantity"],
-    errors="coerce"
-)
-
-
-# =========================================================
-# CALCULATIONS
-# =========================================================
-
-monthly_total = df[
-    "Price"
-].sum()
-
-
-receipt_count = len(
-    processed_receipts
-)
-
-
-purchase_count = len(
-    df
-)
-
-
-# =========================================================
-# MOST EXPENSIVE PURCHASE
-# =========================================================
-
-if df["Price"].notna().any():
-
-    expensive_row = df.loc[
-        df["Price"].idxmax()
-    ]
-
-
-    expensive_item = expensive_row[
-        "Item"
-    ]
-
-
-    expensive_price = expensive_row[
-        "Price"
-    ]
-
-
-else:
-
-    expensive_item = "Not available"
-
-    expensive_price = 0
-
-
-# =========================================================
-# MONTHLY SUMMARY
-# =========================================================
-
-st.divider()
-
-st.subheader(
-    "Monthly summary"
-)
-
-
-col1, col2, col3 = st.columns(
-    3,
-    gap="medium"
-)
-
-
-# =========================================================
-# TOTAL SPENT
-# =========================================================
-
-with col1:
-
-    st.metric(
-        label="Total spent",
-        value=f"₹{monthly_total:,.2f}"
-    )
-
-
-# =========================================================
-# HIGHEST PURCHASE
-# =========================================================
-
-with col2:
-
-    st.metric(
-        label="Highest purchase",
-        value=f"₹{expensive_price:,.2f}",
-        help=f"Item: {expensive_item}"
-    )
-
-
-# =========================================================
-# RECEIPTS
-# =========================================================
-
-with col3:
-
-    st.metric(
-        label="Receipts uploaded",
-        value=str(receipt_count),
-        help=f"{purchase_count} items detected"
-    )
-
-
-# =========================================================
-# ANALYSIS SECTION
-# =========================================================
-
-st.divider()
-
-
-left, right = st.columns(
-    [1, 1],
-    gap="large"
-)
-
-
-# =========================================================
-# SPENDING BY STORE
-# =========================================================
-
-with left:
-
-    st.subheader(
-        "Spending by store"
-    )
-
-
-    if df["Store"].notna().any():
-
-        store_spending = (
-            df
-            .dropna(
-                subset=["Store"]
-            )
-            .groupby(
-                "Store"
-            )["Price"]
-            .sum()
-            .sort_values(
-                ascending=False
-            )
-        )
-
-
-        st.bar_chart(
-            store_spending
-        )
-
-
-    else:
-
-        st.info(
-            "Store names could not be detected."
-        )
-
-
-# =========================================================
-# HIGHEST PURCHASES
-# =========================================================
-
-with right:
-
-    st.subheader(
-        "Highest purchases"
-    )
-
-
-    top_items = (
-        df
-        .dropna(
-            subset=["Price"]
-        )
-        .sort_values(
-            by="Price",
-            ascending=False
-        )
-        .head(5)
-    )
-
-
-    if not top_items.empty:
-
-        st.dataframe(
-            top_items[
-                [
-                    "Item",
-                    "Store",
-                    "Price"
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True
-        )
-
-
-    else:
-
-        st.info(
-            "No valid price data available."
-        )
-
-
-# =========================================================
-# ALL PURCHASES
-# =========================================================
-
-st.divider()
-
-st.subheader(
-    "All purchases"
-)
-
-
-st.dataframe(
-    df,
-    use_container_width=True,
-    hide_index=True
-)
-
-
-# =========================================================
-# RAW VLM RESULTS
-# =========================================================
-
-with st.expander(
-    "View extracted receipt details"
-):
-
-    for receipt in processed_receipts:
-
-        st.markdown(
-            f"### {receipt['filename']}"
-        )
-
-        st.json(
-            receipt["data"]
-        )
-
-
-# =========================================================
-# CREATE PANDASAI SMART DATAFRAME
-# =========================================================
-
-sdf = SmartDataframe(
-    df,
-    config={
-        "llm":
-            groq_llm,
-
-        "verbose":
-            False,
-
-        "enable_cache":
-            False
-    }
-)
-
-
-# =========================================================
-# ASK QUESTIONS
-# =========================================================
-
-st.divider()
-
-st.subheader(
-    "Ask about your spending"
-)
-
-
-st.caption(
-    "Ask a natural-language question about "
-    "all your uploaded receipt data."
-)
-
-
-question_col, button_col = st.columns(
-    [5, 1]
-)
-
-
-with question_col:
-
-    user_question = st.text_input(
-        "Question",
-        placeholder=(
-            "Example: Which item did I buy most often?"
-        ),
-        label_visibility="collapsed"
-    )
-
-
-with button_col:
-
-    ask_button = st.button(
-        "Ask",
-        use_container_width=True
-    )
-
-
-# =========================================================
-# PANDASAI ANSWER
-# =========================================================
-
-if ask_button:
-
-    if not user_question:
+    if df.empty:
 
         st.warning(
-            "Enter a question first."
+            "No grocery items were detected."
         )
 
+        st.stop()
+
+
+    # =====================================================
+    # CLEAN NUMERIC COLUMNS
+    # =====================================================
+
+    df["Quantity"] = pd.to_numeric(
+        df["Quantity"],
+        errors="coerce"
+    ).fillna(1)
+
+
+    df["Price"] = pd.to_numeric(
+        df["Price"],
+        errors="coerce"
+    ).fillna(0)
+
+
+    # =====================================================
+    # NORMALIZED ITEM
+    # =====================================================
+
+    df["Normalized_Item"] = (
+        df["Item"]
+        .astype(str)
+        .str.lower()
+        .str.strip()
+    )
+
+
+    # =====================================================
+    # DETECT CURRENCY
+    # =====================================================
+
+    currencies = (
+        df["Currency"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+    )
+
+    currencies = [
+        currency
+        for currency in currencies.unique()
+        if currency
+    ]
+
+
+    if len(currencies) == 1:
+
+        currency_symbol = currencies[0]
+
+    elif len(currencies) == 0:
+
+        currency_symbol = ""
 
     else:
 
-        try:
+        currency_symbol = None
 
-            with st.spinner(
-                "Analyzing your spending..."
-            ):
 
-                answer = sdf.chat(
-                    user_question
+    if currency_symbol is None:
+
+        st.warning(
+            "Multiple currencies were detected. "
+            "Combined spending totals are hidden because "
+            "different currencies should not be added together."
+        )
+
+
+    # =====================================================
+    # SUMMARY
+    # =====================================================
+
+    st.subheader("Spending Summary")
+
+
+    metric1, metric2, metric3 = st.columns(3)
+
+
+    # -----------------------------------------------------
+    # TOTAL SPENDING
+    # -----------------------------------------------------
+
+    if currency_symbol is not None:
+
+        total_spending = df["Price"].sum()
+
+        metric1.metric(
+            "Total spent",
+            f"{currency_symbol}{total_spending:.2f}"
+        )
+
+    else:
+
+        metric1.metric(
+            "Total spent",
+            "Multiple currencies"
+        )
+
+
+    # -----------------------------------------------------
+    # HIGHEST PURCHASE
+    # -----------------------------------------------------
+
+    highest_index = (
+        df["Price"]
+        .idxmax()
+    )
+
+    highest_row = (
+        df.loc[highest_index]
+    )
+
+    highest_currency = str(
+        highest_row.get(
+            "Currency",
+            ""
+        )
+    )
+
+    metric2.metric(
+        "Highest purchase",
+        (
+            f"{highest_row['Item']} "
+            f"({highest_currency}"
+            f"{highest_row['Price']:.2f})"
+        )
+    )
+
+
+    # -----------------------------------------------------
+    # NUMBER OF RECEIPTS
+    # -----------------------------------------------------
+
+    metric3.metric(
+        "Receipts uploaded",
+        len(receipts)
+    )
+
+
+    st.divider()
+
+
+    # =====================================================
+    # CHARTS
+    # =====================================================
+
+    if currency_symbol is not None:
+
+        left, right = st.columns(2)
+
+
+        # -------------------------------------------------
+        # SPENDING BY CATEGORY
+        # -------------------------------------------------
+
+        with left:
+
+            st.subheader(
+                "Spending by category"
+            )
+
+            category_spending = (
+                df.groupby("Category")["Price"]
+                .sum()
+                .sort_values(
+                    ascending=False
                 )
+            )
 
-
-            st.success(
-                str(answer)
+            st.bar_chart(
+                category_spending
             )
 
 
-        except Exception as e:
+        # -------------------------------------------------
+        # SPENDING BY STORE
+        # -------------------------------------------------
 
-            st.error(
-                "Could not answer the question."
+        with right:
+
+            st.subheader(
+                "Spending by store"
+            )
+
+            store_spending = (
+                df.groupby("Store")["Price"]
+                .sum()
+                .sort_values(
+                    ascending=False
+                )
+            )
+
+            st.bar_chart(
+                store_spending
             )
 
 
-            with st.expander(
-                "Technical details"
-            ):
+    # =====================================================
+    # ALL PURCHASES
+    # =====================================================
 
-                st.code(
-                    str(e)
+    st.subheader("All purchases")
+
+
+    display_df = df.drop(
+        columns=["Normalized_Item"]
+    )
+
+
+    st.dataframe(
+        display_df,
+        width="stretch"
+    )
+
+
+    # =====================================================
+    # RAW RECEIPT DETAILS
+    # =====================================================
+
+    with st.expander(
+        "View extracted receipt details"
+    ):
+
+        for index, receipt in enumerate(
+            receipts,
+            start=1
+        ):
+
+            st.write(
+                f"Receipt {index}"
+            )
+
+            st.json(
+                receipt
+            )
+
+
+    st.divider()
+
+
+    # =====================================================
+    # AI CHATBOT
+    # =====================================================
+
+    st.subheader(
+        "Ask questions about your spending"
+    )
+
+
+    sdf = SmartDataframe(
+        df,
+        config={
+            "llm": groq_llm,
+            "verbose": True,
+            "enable_cache": False
+        }
+    )
+
+
+    user_question = st.text_input(
+        "Ask a question about your receipts"
+    )
+
+
+    if st.button(
+        "Ask",
+        width="stretch"
+    ):
+
+        if user_question.strip():
+
+            try:
+
+                # =========================================
+                # ADD STORE + DATE TO GENERATED SQL
+                # =========================================
+
+                internal_question = f"""
+{user_question}
+
+IMPORTANT:
+When generating the SQL query, if the answer comes from
+specific receipt rows, include Store and Date in the
+SELECT statement so that the source receipt can be
+identified.
+
+Do not remove Store or Date when selecting a specific
+purchase or item.
+"""
+
+
+                with st.spinner(
+                    "Analyzing..."
+                ):
+
+                    answer = sdf.chat(
+                        internal_question
+                    )
+
+
+                st.success(
+                    "Answer"
+                )
+
+                st.write(
+                    answer
                 )
 
 
-# =========================================================
-# DOWNLOAD CSV
-# =========================================================
+            except Exception as e:
 
-st.divider()
+                st.error(
+                    f"Could not answer question: {e}"
+                )
 
+        else:
 
-csv_data = df.to_csv(
-    index=False
-).encode(
-    "utf-8"
-)
-
-
-st.download_button(
-    label="Download extracted data",
-    data=csv_data,
-    file_name="monthly_receipt_data.csv",
-    mime="text/csv"
-)
+            st.warning(
+                "Enter a question first."
+            )
 
 
-# =========================================================
-# CLEAR CACHE
-# =========================================================
+    # =====================================================
+    # DOWNLOAD CSV
+    # =====================================================
 
-st.divider()
+    st.divider()
+
+    st.subheader(
+        "Export data"
+    )
 
 
-if st.button(
-    "Clear processed receipts"
-):
+    csv_data = (
+        display_df
+        .to_csv(
+            index=False
+        )
+        .encode("utf-8")
+    )
 
-    st.session_state.receipt_cache = {}
 
-    st.rerun()
+    st.download_button(
+        label="Download CSV",
+        data=csv_data,
+        file_name="grocery_spending.csv",
+        mime="text/csv"
+    )
+
+
+    # =====================================================
+    # CLEAR CACHE
+    # =====================================================
+
+    if st.button(
+        "Clear processed receipts"
+    ):
+
+        st.session_state.receipt_cache = {}
+
+        st.success(
+            "Processed receipt cache cleared."
+        )
+
+        st.rerun()
